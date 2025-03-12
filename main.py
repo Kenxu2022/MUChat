@@ -51,6 +51,8 @@ def getAnswerData(header, cookie, question, newChatId = ""):
             data["type"] = eventType
             data["content"] = eventData
             q.put(data)
+            if eventType == "flowResponses":
+                break
 
 def outputContent():
     reasoningCount = 0
