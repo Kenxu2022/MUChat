@@ -70,7 +70,7 @@ def outputContent():
             # print(content)
             if content.get('content') is None and contentCount == 0:
                 if reasoningCount == 0:
-                    print("Reasoning Content: ", end='')
+                    print("<think>")
                 reasoningContent = content['reasoning_content']
                 print(reasoningContent, end='', flush=True)
                 reasoningCount = reasoningCount + 1
@@ -78,7 +78,7 @@ def outputContent():
                 continue
             else:
                 if contentCount == 0:
-                    print("\nActual Content: ", end='')
+                    print("</think>")
                 actualContent = content['content']
                 if actualContent is None:
                     actualContent = ""
