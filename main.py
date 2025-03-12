@@ -7,7 +7,7 @@ from login import getAccessToken
 
 q = Queue()
 URL = "http://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
-
+chatId = ""
 accessToken = getAccessToken()
 
 header = {
@@ -87,12 +87,16 @@ def outputContent():
             break
     print(f"Chat ID: {chatId}")
 
-question = input("Ask something: ")
-get = threading.Thread(target=getAnswerData, args=(header, cookie, question))
-out = threading.Thread(target=outputContent)
+while True:
+    question = input("Ask something, type 'quit' to exit: ")
+    if question == "quit":
+        print("Bye~🥰")
+        break
+    get = threading.Thread(target=getAnswerData, args=(header, cookie, question, chatId))
+    out = threading.Thread(target=outputContent)
 
-get.start()
-out.start()
+    get.start()
+    out.start()
 
-get.join()
-out.join()
+    get.join()
+    out.join()
