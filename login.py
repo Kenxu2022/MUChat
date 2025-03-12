@@ -63,8 +63,8 @@ def getAccessToken():
         ticketLocation = loginHeader.get('Location')
         setCookie = loginHeader.get('Set-Cookie')
         if setCookie is not None:
-            print(ticketLocation)
-            print(setCookie)
+            # print(ticketLocation)
+            # print(setCookie)
             break
         else:
             print("Failed, retrying...")
@@ -75,11 +75,11 @@ def getAccessToken():
     # print(getSessionString)
     setCookieString = getSessionString.get('Set-Cookie')
     sessionCookie = setCookieString.split(';')[0]
-    print(sessionCookie)
+    # print(sessionCookie)
     authorizationString = getAuthorization(sessionCookie)
     # print(authorizationString)
     locationString = authorizationString.get('Location')
     # print(locationString)
     accessToken = parse_qs(urlparse(locationString).fragment).get('/accessLogin?access_token')[0]
-    print(accessToken)
+    # print(accessToken)
     return accessToken
