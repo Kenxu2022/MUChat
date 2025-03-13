@@ -1,9 +1,13 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
+from configparser import ConfigParser
 
-username = "USERNAME"
-password = "PASSWORD"
+conf = ConfigParser()
+conf.read("config.ini")
+
+username = conf['Login']['Username']
+password = conf['Login']['Password']
 url = "https://ca.muc.edu.cn/zfca/login?service=http://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin"
 header = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
