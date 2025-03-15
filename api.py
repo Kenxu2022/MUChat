@@ -72,21 +72,23 @@ def getAnswerData(header, cookie, question, newChatId = ""):
     global chatId
     chatId = response.headers['Chat-Question-Id'].split("_")[0]
     for line in response.iter_lines():
-        eventType = ""
         line = line.decode('utf-8').strip()
-        if line.startswith('event:'):
-            eventType = line.split(":", 1)[1].strip()
         if line.startswith('data:'):
-            yield line[5:]
-        if eventType == "flowResponses":
-            break
+            dataLine = line[5:]
+        elif line.startswith('event:'):
+            eventType = line.split(":", 1)[1].strip()
+        elif line == "":
+            yield dataLine
+            if eventType == "flowResponses":
+                break
 
 def adjustContent(question):
     reasoningCount = 0
     contentCount = 0
     uuid = str(uuid4())
     timeStamp = int(time.time())
-    for line in getAnswerData(header, cookie, question):
+    rawData = getAnswerData(header, cookie, question)
+    for line in rawData:
         if line == "[DONE]":
             break
         line = json.loads(line)
