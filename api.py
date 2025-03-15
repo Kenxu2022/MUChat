@@ -90,6 +90,24 @@ def adjustContent(question):
     rawData = getAnswerData(header, cookie, question)
     for line in rawData:
         if line == "[DONE]":
+            responseStats = json.loads(next(rawData))
+            promptTokens = responseStats[2]['inputTokens']
+            completionTokens = responseStats[2]['outputTokens']
+            totalTokens = responseStats[2]['tokens']
+            streamingTime = responseStats[2]['runningTime']
+            usageChunk = {
+                "id": uuid,
+                "object": "chat.completion.chunk",
+                "created": timeStamp,
+                "model": "deepseek-r1-minda",
+                "usage": {
+                    "prompt_tokens": promptTokens,
+                    "completion_tokens": completionTokens,
+                    "total_tokens": totalTokens,
+                    "streaming_time": streamingTime
+                } 
+            }
+            yield f"data: {json.dumps(usageChunk)}\n\n"
             break
         line = json.loads(line)
         if line.get("id") is None:
