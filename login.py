@@ -66,7 +66,7 @@ def getAccessToken():
         # print(loginHeader)
         ticketLocation = loginHeader.get('Location')
         setCookie = loginHeader.get('Set-Cookie')
-        if setCookie is not None:
+        if setCookie is not None and "CASTGC" in setCookie:
             # print(ticketLocation)
             # print(setCookie)
             break
