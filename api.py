@@ -18,6 +18,7 @@ app = FastAPI(title="MUChat API")
 
 URL = "http://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
 chatId = ""
+previousContent = {}
 startThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
 endThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "\n</think>\n"}, "index": 0, "finish_reason": None}]}
 
@@ -82,12 +83,12 @@ def getAnswerData(header, cookie, question, newChatId = ""):
             if eventType == "flowResponses":
                 break
 
-def adjustContent(question):
+def adjustContent(question, injectChatId):
     reasoningCount = 0
     contentCount = 0
     uuid = str(uuid4())
     timeStamp = int(time.time())
-    rawData = getAnswerData(header, cookie, question)
+    rawData = getAnswerData(header, cookie, question, injectChatId)
     for line in rawData:
         if line == "[DONE]":
             responseStats = json.loads(next(rawData))
@@ -95,6 +96,10 @@ def adjustContent(question):
             completionTokens = responseStats[2]['outputTokens']
             totalTokens = responseStats[2]['tokens']
             streamingTime = responseStats[2]['runningTime']
+            # previousRequest = responseStats[2]['historyPreview'][-2]['value']
+            previousResponse = responseStats[2]['historyPreview'][-1]['value'].strip()
+            # print(previousResponse.md5().hexdigest())
+            previousContent[previousResponse] = chatId
             usageChunk = {
                 "id": uuid,
                 "object": "chat.completion.chunk",
@@ -107,6 +112,7 @@ def adjustContent(question):
                     "streaming_time": streamingTime
                 } 
             }
+            # print(previousContent)
             yield f"data: {json.dumps(usageChunk)}\n\n"
             break
         line = json.loads(line)
@@ -132,8 +138,15 @@ def adjustContent(question):
 
 @app.post("/v1/chat/completions")
 async def chatCompletion(request: ChatCompletionRequest):
+    injectChatId = ""
     question = request.messages[-1].content
-    return StreamingResponse(adjustContent(question), media_type="application/x-ndjson")
+    if len(request.messages) > 1:
+        previousChatContent = request.messages[-2].content.strip()
+        if previousContent.get(previousChatContent) is not None:
+            # remove previous chat content(pop will return its value)
+            injectChatId = previousContent.pop(previousChatContent)
+            # print(injectChatId)
+    return StreamingResponse(adjustContent(question, injectChatId), media_type="application/x-ndjson")
 
 if __name__ == "__main__":
     uvicorn.run(app, host='0.0.0.0', port=8000)
