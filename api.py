@@ -7,11 +7,17 @@ from login import getAccessToken
 from uuid import uuid4
 import time
 
+from configparser import ConfigParser
+
 from typing import List, Optional
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 import uvicorn
 
+conf = ConfigParser()
+conf.read('config.ini')
+listenIP = conf['API']['ListenIP']
+listenPort = int(conf['API']['Port'])
 q = Queue()
 app = FastAPI(title="MUChat API")
 
@@ -98,7 +104,6 @@ def adjustContent(question, injectChatId):
             streamingTime = responseStats[2]['runningTime']
             # previousRequest = responseStats[2]['historyPreview'][-2]['value']
             previousResponse = responseStats[2]['historyPreview'][-1]['value'].strip()
-            # print(previousResponse.md5().hexdigest())
             previousContent[previousResponse] = chatId
             usageChunk = {
                 "id": uuid,
@@ -149,4 +154,4 @@ async def chatCompletion(request: ChatCompletionRequest):
     return StreamingResponse(adjustContent(question, injectChatId), media_type="application/x-ndjson")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+    uvicorn.run(app, host=listenIP, port=listenPort)
