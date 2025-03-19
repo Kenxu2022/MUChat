@@ -34,7 +34,7 @@ class DatabaseManager:
     def updateDbContext(self, chatId:str, content:str):
         self.cursor.execute("SELECT * FROM MUChatContext WHERE ChatID = ?", (chatId,))
         result = self.cursor.fetchone()
-        # print(f"chatid: {chatId}, result: {result}")
+        # print(f"chatid: {chatId}, content: {content}, result: {result}")
         if result is not None:
             self.cursor.execute('''
                 UPDATE MUChatContext SET PreviousContent = ? WHERE ChatID = ?
