@@ -3,6 +3,7 @@ import requests
 import json
 from queue import Queue
 from login import getAccessToken
+from db import DatabaseManager
 
 from uuid import uuid4
 import time
@@ -18,6 +19,7 @@ conf = ConfigParser()
 conf.read('config.ini')
 listenIP = conf['API']['ListenIP']
 listenPort = int(conf['API']['Port'])
+context = conf['API']['Context']
 q = Queue()
 app = FastAPI(title="MUChat API")
 
@@ -63,6 +65,26 @@ def processLine(line, uuid, createTime):
     line['model'] = "deepseek-r1-minda"
     return line
 
+def updateContext(id, response, contextType):
+    if contextType == "internal":
+        previousContent[response] = id
+    elif contextType == "external":
+        with DatabaseManager() as dbManager:
+            dbManager.updateDbContext(id, response)
+
+def getChatId(content, contextType):
+    if contextType == "internal":
+        if previousContent.get(content) is not None:
+            # remove previous chat content(pop will return its value)
+            id = previousContent.pop(content)
+            return id
+        else:
+            return None
+    elif contextType == "external":
+        with DatabaseManager() as dbManager:
+            id = dbManager.getDbChatId(content)
+        return id
+
 def getAnswerData(header, cookie, question, newChatId = ""):
     payload = {"chatId":newChatId,
            "detail":"true",
@@ -89,7 +111,7 @@ def getAnswerData(header, cookie, question, newChatId = ""):
             if eventType == "flowResponses":
                 break
 
-def adjustContent(question, injectChatId):
+def adjustContent(question, injectChatId, contextType):
     reasoningCount = 0
     contentCount = 0
     uuid = str(uuid4())
@@ -103,8 +125,9 @@ def adjustContent(question, injectChatId):
             totalTokens = responseStats[2]['tokens']
             streamingTime = responseStats[2]['runningTime']
             # previousRequest = responseStats[2]['historyPreview'][-2]['value']
-            previousResponse = responseStats[2]['historyPreview'][-1]['value'].strip()
-            previousContent[previousResponse] = chatId
+            if contextType in ("internal", "external"):
+                previousResponse = responseStats[2]['historyPreview'][-1]['value'].strip()
+                updateContext(chatId, previousResponse, contextType)
             usageChunk = {
                 "id": uuid,
                 "object": "chat.completion.chunk",
@@ -145,13 +168,10 @@ def adjustContent(question, injectChatId):
 async def chatCompletion(request: ChatCompletionRequest):
     injectChatId = ""
     question = request.messages[-1].content
-    if len(request.messages) > 1:
+    if len(request.messages) > 1 and context in ("internal", "external"):
         previousChatContent = request.messages[-2].content.strip()
-        if previousContent.get(previousChatContent) is not None:
-            # remove previous chat content(pop will return its value)
-            injectChatId = previousContent.pop(previousChatContent)
-            # print(injectChatId)
-    return StreamingResponse(adjustContent(question, injectChatId), media_type="application/x-ndjson")
+        injectChatId = getChatId(previousChatContent, context)
+    return StreamingResponse(adjustContent(question, injectChatId, context), media_type="application/x-ndjson")
 
 if __name__ == "__main__":
     uvicorn.run(app, host=listenIP, port=listenPort)
