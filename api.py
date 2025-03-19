@@ -1,7 +1,7 @@
+from fastapi import FastAPI
 import requests
 import json
 from queue import Queue
-import threading
 from login import getAccessToken
 from db import DatabaseManager
 
@@ -10,14 +10,12 @@ import time
 
 from configparser import ConfigParser
 
-from fastapi import FastAPI
 from typing import List, Optional
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 import uvicorn
 
 conf = ConfigParser()
-threadLocal = threading.local()
 conf.read('config.ini')
 listenIP = conf['API']['ListenIP']
 listenPort = int(conf['API']['Port'])
@@ -27,7 +25,7 @@ app = FastAPI(title="MUChat API")
 
 
 URL = "http://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
-# chatId = ""
+chatId = ""
 previousContent = {}
 startThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
 endThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "\n</think>\n"}, "index": 0, "finish_reason": None}]}
@@ -88,9 +86,6 @@ def getChatId(content, contextType):
         return id
 
 def getAnswerData(header, cookie, question, newChatId = ""):
-    # initialize Chat ID in local thread storage
-    if not hasattr(threadLocal, 'chatId'):
-        threadLocal.chatId = ""
     payload = {"chatId":newChatId,
            "detail":"true",
            "alias":"deepseek",
@@ -103,8 +98,8 @@ def getAnswerData(header, cookie, question, newChatId = ""):
                }
             }
     response = requests.post(URL, headers=header, cookies=cookie, json=payload, verify=False, stream=True)
-    # global chatId
-    threadLocal.chatId = response.headers['Chat-Question-Id'].split("_")[0]
+    global chatId
+    chatId = response.headers['Chat-Question-Id'].split("_")[0]
     for line in response.iter_lines():
         line = line.decode('utf-8').strip()
         if line.startswith('data:'):
@@ -132,7 +127,7 @@ def adjustContent(question, injectChatId, contextType):
             # previousRequest = responseStats[2]['historyPreview'][-2]['value']
             if contextType in ("internal", "external"):
                 previousResponse = responseStats[2]['historyPreview'][-1]['value'].strip()
-                updateContext(threadLocal.chatId, previousResponse, contextType)
+                updateContext(chatId, previousResponse, contextType)
             usageChunk = {
                 "id": uuid,
                 "object": "chat.completion.chunk",
