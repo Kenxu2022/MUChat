@@ -1,4 +1,3 @@
-from fastapi import FastAPI
 import requests
 import json
 from queue import Queue
@@ -13,6 +12,7 @@ from configparser import ConfigParser
 from typing import List, Optional
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
+from fastapi import FastAPI
 import uvicorn
 
 conf = ConfigParser()
@@ -25,7 +25,7 @@ app = FastAPI(title="MUChat API")
 
 
 URL = "http://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
-chatId = ""
+# chatId = ""
 previousContent = {}
 startThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
 endThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "\n</think>\n"}, "index": 0, "finish_reason": None}]}
@@ -98,25 +98,28 @@ def getAnswerData(header, cookie, question, newChatId = ""):
                }
             }
     response = requests.post(URL, headers=header, cookies=cookie, json=payload, verify=False, stream=True)
-    global chatId
+    # global chatId
     chatId = response.headers['Chat-Question-Id'].split("_")[0]
-    for line in response.iter_lines():
-        line = line.decode('utf-8').strip()
-        if line.startswith('data:'):
-            dataLine = line[5:]
-        elif line.startswith('event:'):
-            eventType = line.split(":", 1)[1].strip()
-        elif line == "":
-            yield dataLine
-            if eventType == "flowResponses":
-                break
+    def generateLines():
+        for line in response.iter_lines():
+            line = line.decode('utf-8').strip()
+            if line.startswith('data:'):
+                dataLine = line[5:]
+            elif line.startswith('event:'):
+                eventType = line.split(":", 1)[1].strip()
+            elif line == "":
+                yield dataLine
+                if eventType == "flowResponses":
+                    break
+    # return chatId and generater
+    return chatId, generateLines()
 
 def adjustContent(question, injectChatId, contextType):
     reasoningCount = 0
     contentCount = 0
     uuid = str(uuid4())
     timeStamp = int(time.time())
-    rawData = getAnswerData(header, cookie, question, injectChatId)
+    chatId, rawData = getAnswerData(header, cookie, question, injectChatId)
     for line in rawData:
         if line == "[DONE]":
             responseStats = json.loads(next(rawData))
