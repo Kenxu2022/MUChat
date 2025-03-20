@@ -22,6 +22,7 @@ listenPort = int(conf['API']['Port'])
 context = conf['API']['Context']
 q = Queue()
 app = FastAPI(title="MUChat API")
+accessToken = getAccessToken()
 
 
 URL = "http://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
@@ -42,21 +43,32 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = 0.1
     stream: Optional[bool] = False
 
-accessToken = getAccessToken()
 
-header = {
-    'Accept-Language': 'zh-CN,zh;q=0.9',
-    'Authorization': f'Bearer {accessToken}',
-    'Cache-Control': 'no-cache',
-    'Content-Type': 'application/json',
-    'Pragma': 'no-cache',
-    'Proxy-Connection': 'keep-alive',
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-    'accept': 'text/event-stream'
-}
-cookie = {
-    'Authorization': f'Bearer {accessToken}'
-}
+def getHeaderCookie(token: str):
+    header = {
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Authorization': f'Bearer {token}',
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/json',
+        'Pragma': 'no-cache',
+        'Proxy-Connection': 'keep-alive',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+    }
+    cookie = {
+        'Authorization': f'Bearer {token}'
+    }
+    return header, cookie
+
+def checkLoginStatus(token: str):
+    url = "http://so.muc.edu.cn/ai_service/search-server//agent-reminder-record/query-unread-count"
+    header, cookie = getHeaderCookie(token)
+    response = requests.get(url, headers=header, cookies=cookie)
+    data = json.loads(response.text)
+    loginStatus = data.get('code')
+    if loginStatus == "0000":
+        return True
+    else:
+        return False
 
 def processLine(line, uuid, createTime):
     line['id'] = uuid
@@ -119,6 +131,11 @@ def adjustContent(question, injectChatId, contextType):
     contentCount = 0
     uuid = str(uuid4())
     timeStamp = int(time.time())
+    global accessToken
+    if not checkLoginStatus(accessToken):
+        print("Invalid access token, refreshing...")
+        accessToken = getAccessToken()
+    header, cookie = getHeaderCookie(accessToken)
     chatId, rawData = getAnswerData(header, cookie, question, injectChatId)
     for line in rawData:
         if line == "[DONE]":
