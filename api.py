@@ -218,7 +218,7 @@ def adjustNonStreamContent(question):
                     "prompt_tokens": promptTokens,
                     "completion_tokens": completionTokens,
                     "total_tokens": totalTokens,
-                    "streaming_time": streamingTime
+                    "response_time": streamingTime
                 } 
             }
             return chatCompletion
