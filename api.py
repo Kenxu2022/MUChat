@@ -184,14 +184,56 @@ def adjustContent(question, injectChatId, contextType):
             yield f"data: {json.dumps(line)}\n\n"
             contentCount = contentCount + 1
 
+def adjustNonStreamContent(question):
+    uuid = str(uuid4())
+    timeStamp = int(time.time())
+    global accessToken
+    if not checkLoginStatus(accessToken):
+        print("Invalid access token, refreshing...")
+        accessToken = getAccessToken()
+    header, cookie = getHeaderCookie(accessToken)
+    _, rawData = getAnswerData(header, cookie, question)
+    for line in rawData:
+        if line == "[DONE]":
+            responseStats = json.loads(next(rawData))
+            chatContent = responseStats[2]['historyPreview'][-1]['value'].strip()
+            promptTokens = responseStats[2]['inputTokens']
+            completionTokens = responseStats[2]['outputTokens']
+            totalTokens = responseStats[2]['tokens']
+            streamingTime = responseStats[2]['runningTime']
+            chatCompletion = {
+                "id": uuid,
+                "object": "chat.completion",
+                "created": timeStamp,
+                "model": "deepseek-r1-minda",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": chatContent
+                        }
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": promptTokens,
+                    "completion_tokens": completionTokens,
+                    "total_tokens": totalTokens,
+                    "streaming_time": streamingTime
+                } 
+            }
+            return chatCompletion
+
 @app.post("/v1/chat/completions")
 async def chatCompletion(request: ChatCompletionRequest):
     injectChatId = ""
     question = request.messages[-1].content
-    if len(request.messages) > 1 and context in ("internal", "external"):
-        previousChatContent = request.messages[-2].content.strip()
-        injectChatId = getChatId(previousChatContent, context)
-    return StreamingResponse(adjustContent(question, injectChatId, context), media_type="application/x-ndjson")
+    if request.stream:
+        if len(request.messages) > 1 and context in ("internal", "external"):
+            previousChatContent = request.messages[-2].content.strip()
+            injectChatId = getChatId(previousChatContent, context)
+        return StreamingResponse(adjustContent(question, injectChatId, context), media_type="application/x-ndjson")
+    else:
+        return adjustNonStreamContent(question)
 
 if __name__ == "__main__":
     uvicorn.run(app, host=listenIP, port=listenPort)
