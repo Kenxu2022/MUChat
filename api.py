@@ -25,7 +25,7 @@ app = FastAPI(title="MUChat API")
 accessToken = getAccessToken()
 
 
-URL = "http://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
+URL = "https://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
 # chatId = ""
 previousContent = {}
 startThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
@@ -60,7 +60,7 @@ def getHeaderCookie(token: str):
     return header, cookie
 
 def checkLoginStatus(token: str):
-    url = "http://so.muc.edu.cn/ai_service/search-server//agent-reminder-record/query-unread-count"
+    url = "https://so.muc.edu.cn/ai_service/search-server//agent-reminder-record/query-unread-count"
     header, cookie = getHeaderCookie(token)
     response = requests.get(url, headers=header, cookies=cookie)
     data = json.loads(response.text)
@@ -109,7 +109,7 @@ def getAnswerData(header, cookie, question, newChatId = ""):
                "rewriteResult":"{}"
                }
             }
-    response = requests.post(URL, headers=header, cookies=cookie, json=payload, verify=False, stream=True)
+    response = requests.post(URL, headers=header, cookies=cookie, json=payload, stream=True)
     # global chatId
     chatId = response.headers['Chat-Question-Id'].split("_")[0]
     def generateLines():
@@ -140,13 +140,13 @@ def adjustContent(question, injectChatId, contextType):
     for line in rawData:
         if line == "[DONE]":
             responseStats = json.loads(next(rawData))
-            promptTokens = responseStats[2]['inputTokens']
-            completionTokens = responseStats[2]['outputTokens']
-            totalTokens = responseStats[2]['tokens']
-            streamingTime = responseStats[2]['runningTime']
-            # previousRequest = responseStats[2]['historyPreview'][-2]['value']
+            promptTokens = responseStats[4]['inputTokens']
+            completionTokens = responseStats[4]['outputTokens']
+            totalTokens = responseStats[4]['tokens']
+            streamingTime = responseStats[4]['runningTime']
+            # previousRequest = responseStats[4]['historyPreview'][-2]['value']
             if contextType in ("internal", "external"):
-                previousResponse = responseStats[2]['historyPreview'][-1]['value'].strip()
+                previousResponse = responseStats[4]['historyPreview'][-1]['value'].strip()
                 updateContext(chatId, previousResponse, contextType)
             usageChunk = {
                 "id": uuid,
@@ -196,11 +196,11 @@ def adjustNonStreamContent(question):
     for line in rawData:
         if line == "[DONE]":
             responseStats = json.loads(next(rawData))
-            chatContent = responseStats[2]['historyPreview'][-1]['value'].strip()
-            promptTokens = responseStats[2]['inputTokens']
-            completionTokens = responseStats[2]['outputTokens']
-            totalTokens = responseStats[2]['tokens']
-            streamingTime = responseStats[2]['runningTime']
+            chatContent = responseStats[4]['historyPreview'][-1]['value'].strip()
+            promptTokens = responseStats[4]['inputTokens']
+            completionTokens = responseStats[4]['outputTokens']
+            totalTokens = responseStats[4]['tokens']
+            streamingTime = responseStats[4]['runningTime']
             chatCompletion = {
                 "id": uuid,
                 "object": "chat.completion",

@@ -6,7 +6,7 @@ from queue import Queue
 from login import getAccessToken
 
 q = Queue()
-URL = "http://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
+URL = "https://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
 chatId = ""
 accessToken = getAccessToken()
 
@@ -37,7 +37,7 @@ def getAnswerData(header, cookie, question, newChatId = ""):
                "rewriteResult":"{}"
                }
             }
-    response = requests.post(URL, headers=header, cookies=cookie, json=payload, verify=False, stream=True)
+    response = requests.post(URL, headers=header, cookies=cookie, json=payload, stream=True)
     global chatId
     chatId = response.headers['Chat-Question-Id'].split("_")[0]
     for line in response.iter_lines():

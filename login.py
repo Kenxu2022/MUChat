@@ -8,7 +8,7 @@ conf.read("config.ini")
 
 username = conf['Login']['Username']
 password = conf['Login']['Password']
-url = "https://ca.muc.edu.cn/zfca/login?service=http://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin"
+url = "https://ca.muc.edu.cn/zfca/login?service=https://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin"
 header = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     'accept-encoding': 'gzip, deflate, br, zstd',
@@ -50,7 +50,7 @@ def getSession(locationUrl):
     return response.headers
 
 def getAuthorization(sessionCookie):
-    url = "http://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin?clientid=aih5_100040;MUCShow;state;"
+    url = "https://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin?clientid=aih5_100040;MUCShow;state;"
     cookie = {
         sessionCookie.split('=')[0]: sessionCookie.split("=")[1]
     }
