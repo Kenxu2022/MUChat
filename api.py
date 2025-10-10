@@ -1,7 +1,7 @@
 import requests
 import json
 from queue import Queue
-from login import getAccessToken
+from utils.token import TokenManager
 from db import DatabaseManager
 
 from uuid import uuid4
@@ -15,6 +15,8 @@ from starlette.responses import StreamingResponse
 from fastapi import FastAPI
 import uvicorn
 
+from v3api import adjustV3Content, adjustV3NonStreamContent
+
 conf = ConfigParser()
 conf.read('config.ini')
 listenIP = conf['API']['ListenIP']
@@ -22,11 +24,10 @@ listenPort = int(conf['API']['Port'])
 context = conf['API']['Context']
 q = Queue()
 app = FastAPI(title="MUChat API")
-accessToken = getAccessToken()
+tokenManager = TokenManager()
 
 
-URL = "https://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
-# chatId = ""
+URL = "https://so.muc.edu.cn/ai_service/search-server/needle/chat/completions/stream"
 previousContent = {}
 startThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
 endThinkingString = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "\n</think>\n"}, "index": 0, "finish_reason": None}]}
@@ -37,10 +38,8 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "minda-sk1-deepseek-r1"
+    model: str
     messages: List[ChatMessage]
-    max_tokens: Optional[int] = 512
-    temperature: Optional[float] = 0.1
     stream: Optional[bool] = False
 
 
@@ -110,7 +109,6 @@ def getAnswerData(header, cookie, question, newChatId = ""):
                }
             }
     response = requests.post(URL, headers=header, cookies=cookie, json=payload, stream=True)
-    # global chatId
     chatId = response.headers['Chat-Question-Id'].split("_")[0]
     def generateLines():
         for line in response.iter_lines():
@@ -131,10 +129,7 @@ def adjustContent(question, injectChatId, contextType):
     contentCount = 0
     uuid = str(uuid4())
     timeStamp = int(time.time())
-    global accessToken
-    if not checkLoginStatus(accessToken):
-        print("Invalid access token, refreshing...")
-        accessToken = getAccessToken()
+    accessToken = tokenManager.getAccessToken()
     header, cookie = getHeaderCookie(accessToken)
     chatId, rawData = getAnswerData(header, cookie, question, injectChatId)
     for line in rawData:
@@ -187,10 +182,7 @@ def adjustContent(question, injectChatId, contextType):
 def adjustNonStreamContent(question):
     uuid = str(uuid4())
     timeStamp = int(time.time())
-    global accessToken
-    if not checkLoginStatus(accessToken):
-        print("Invalid access token, refreshing...")
-        accessToken = getAccessToken()
+    accessToken = tokenManager.getAccessToken()
     header, cookie = getHeaderCookie(accessToken)
     _, rawData = getAnswerData(header, cookie, question)
     for line in rawData:
@@ -231,9 +223,15 @@ async def chatCompletion(request: ChatCompletionRequest):
         if len(request.messages) > 1 and context in ("internal", "external"):
             previousChatContent = request.messages[-2].content.strip()
             injectChatId = getChatId(previousChatContent, context)
-        return StreamingResponse(adjustContent(question, injectChatId, context), media_type="application/x-ndjson")
+        if request.model == "deepseek-r1-minda":
+            return StreamingResponse(adjustContent(question, injectChatId, context), media_type="application/x-ndjson")
+        else:
+            return StreamingResponse(adjustV3Content(question, injectChatId, context), media_type="application/x-ndjson")
     else:
-        return adjustNonStreamContent(question)
+        if request.model == "deepseek-r1-minda":
+            return adjustNonStreamContent(question)
+        else:
+            return adjustV3NonStreamContent(question)
 
 if __name__ == "__main__":
     uvicorn.run(app, host=listenIP, port=listenPort)

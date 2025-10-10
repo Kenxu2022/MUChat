@@ -3,12 +3,12 @@ import json
 import threading
 from queue import Queue
 
-from login import getAccessToken
+from utils.token import TokenManager
 
 q = Queue()
 URL = "https://so.muc.edu.cn/ai_service/search-server//needle/chat/completions/stream"
 chatId = ""
-accessToken = getAccessToken()
+accessToken = TokenManager().getAccessToken()
 
 header = {
     'Accept-Language': 'zh-CN,zh;q=0.9',
@@ -26,17 +26,18 @@ cookie = {
 
 
 def getAnswerData(header, cookie, question, newChatId = ""):
-    payload = {"chatId":newChatId,
-           "detail":"true",
-           "alias":"deepseek",
-           "question":question,
-           "chatQuestionId":"",
-           "extendParams":{
-               "agentCode":"",
-               "reasoning":"true",
-               "rewriteResult":"{}"
-               }
-            }
+    payload = {
+        "chatId":newChatId,
+        "detail":"true",
+        "alias":"deepseek",
+        "question":question,
+        "chatQuestionId":"",
+        "extendParams":{
+            "agentCode":"",
+            "reasoning":"true",
+            "rewriteResult":"{}"
+        }
+    }
     response = requests.post(URL, headers=header, cookies=cookie, json=payload, stream=True)
     global chatId
     chatId = response.headers['Chat-Question-Id'].split("_")[0]
@@ -59,7 +60,6 @@ def outputContent():
     contentCount = 0
     while True:
         dictData = q.get()
-        # print(f"==============================Get Data: ==============================\n{dictData}\n============================================================")
         if dictData['type'] == "flowNodeStatus":
             continue
         elif dictData['type'] == "answer":
@@ -67,7 +67,6 @@ def outputContent():
             if allContent == "[DONE]":
                 continue
             content = json.loads(dictData['content'])['choices'][0]['delta']
-            # print(content)
             if content.get('content') is None and contentCount == 0:
                 if reasoningCount == 0:
                     print("<think>")
