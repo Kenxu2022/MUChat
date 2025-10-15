@@ -34,18 +34,18 @@ class TokenManager:
         logger.info("Token generated")
         return accessToken, int(time())
 
-    def _refresh_token(self):
+    def _refreshToken(self):
         """Refresh token synchronously and update state under lock."""
         try:
-            new_token, new_time = self._acquireAccessToken()
+            newToken, newTime = self._acquireAccessToken()
             with self._lock:
-                self.token = new_token
-                self.createTime = new_time
+                self.token = newToken
+                self.createTime = newTime
             logger.info("Token refreshed in background")
         except Exception as e:
             logger.exception("Background token refresh failed: {}", e)
 
-    def _refresh_token_async(self):
+    def _refreshTokenAsync(self):
         """Start a daemon thread to refresh token if not already refreshing."""
         with self._lock:
             if self._refreshing:
@@ -54,7 +54,7 @@ class TokenManager:
 
         def _runner():
             try:
-                self._refresh_token()
+                self._refreshToken()
             finally:
                 with self._lock:
                     self._refreshing = False
@@ -69,7 +69,7 @@ class TokenManager:
         # first check if token is valid after 6 hour
         elif checkToken(self.token):
             logger.info("Refreshing token in background...")
-            self._refresh_token_async()
+            self._refreshTokenAsync()
             return self.token
         else:
             logger.info("Token expired, refreshing...")
