@@ -2,8 +2,6 @@ import json
 import time
 from uuid import uuid4
 from configparser import ConfigParser
-from typing import List, Optional
-from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 from fastapi import FastAPI
 import uvicorn
@@ -11,6 +9,7 @@ import uvicorn
 from utils.token import TokenManager
 from db import DatabaseManager
 from network.chat import getAnswerData
+from utils.models import UsageChunk, Usage, ChatCompletionRequest, ChatCompletionChunk, ChatMessage, Choices
 
 conf = ConfigParser()
 conf.read('config.ini')
@@ -23,22 +22,6 @@ previousContent = {}
 
 START_THINKING_STRING = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
 END_THINKING_STRING = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "\n</think>\n"}, "index": 0, "finish_reason": None}]}
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-class ChatCompletionRequest(BaseModel):
-    model: str
-    messages: List[ChatMessage]
-    stream: Optional[bool] = False
-
-def processLine(line, uuid, createTime):
-    line['id'] = uuid
-    line['object'] = "chat.completion.chunk"
-    line['created'] = createTime
-    line['model'] = "deepseek-r1-minda"
-    return line
 
 def updateContext(id, response, contextType):
     if contextType == "internal":
@@ -59,6 +42,15 @@ def getChatId(content, contextType):
         with DatabaseManager() as dbManager:
             id = dbManager.getDbChatId(content)
         return id
+    
+def parseLine(line: dict, uuid: str, createTime: str, model: str, adjustReasoningContent: bool = False):
+    line['id'] = uuid
+    line['object'] = "chat.completion.chunk"
+    line['created'] = createTime
+    line['model'] = model
+    if adjustReasoningContent:
+        line['choices'][0]['delta']['content'] = line['choices'][0]['delta'].pop("reasoning_content")
+    return line
 
 def adjustContent(question: str, injectChatId: str, contextType: str, reasoning: bool):
     reasoningCount = 0
@@ -70,28 +62,21 @@ def adjustContent(question: str, injectChatId: str, contextType: str, reasoning:
     for line in rawData:
         if line == "[DONE]":
             responseStats = json.loads(next(rawData))
-            promptTokens = responseStats[4]['inputTokens']
-            completionTokens = responseStats[4]['outputTokens']
-            totalTokens = responseStats[4]['tokens']
-            streamingTime = responseStats[4]['runningTime']
-            # previousRequest = responseStats[4]['historyPreview'][-2]['value']
             if contextType in ("internal", "external"):
                 previousResponse = responseStats[4]['historyPreview'][-1]['value'].strip()
                 updateContext(chatId, previousResponse, contextType)
-            usageChunk = {
-                "id": uuid,
-                "object": "chat.completion.chunk",
-                "created": timeStamp,
-                "model": model,
-                "usage": {
-                    "prompt_tokens": promptTokens,
-                    "completion_tokens": completionTokens,
-                    "total_tokens": totalTokens,
-                    "streaming_time": streamingTime
-                } 
-            }
-            # print(previousContent)
-            yield f"data: {json.dumps(usageChunk)}\n\n"
+            usageChunk = UsageChunk(
+                id = uuid,
+                created = timeStamp,
+                model = model,
+                usage = Usage(
+                    prompt_tokens = responseStats[4]['inputTokens'],
+                    completion_tokens = responseStats[4]['outputTokens'],
+                    total_tokens = responseStats[4]['tokens'],
+                    streaming_time = responseStats[4]['runningTime']
+                )
+            )
+            yield f"data: {usageChunk.model_dump_json()}\n\n"
             break
         line = json.loads(line)
         if line.get("id") is None:
@@ -99,23 +84,22 @@ def adjustContent(question: str, injectChatId: str, contextType: str, reasoning:
         if reasoning:
             if line['choices'][0]['delta'].get("reasoning_content") is not None:
                 if reasoningCount == 0:
-                    startThinking = processLine(START_THINKING_STRING, uuid, timeStamp)
+                    startThinking = parseLine(START_THINKING_STRING, uuid, timeStamp, model)
                     yield f"data: {json.dumps(startThinking)}\n\n" # need TWO newline characters
-                line['choices'][0]['delta']['content'] = line['choices'][0]['delta'].pop("reasoning_content")
-                line = processLine(line, uuid, timeStamp)
+                line = parseLine(line, uuid, timeStamp, model, True)
                 yield f"data: {json.dumps(line)}\n\n"
                 reasoningCount = reasoningCount + 1
             elif line['choices'][0]['delta'].get('content') == "":
                     continue
             else:
                 if contentCount == 0:
-                    endThinking = processLine(END_THINKING_STRING, uuid, timeStamp)
+                    endThinking = parseLine(END_THINKING_STRING, uuid, timeStamp, model)
                     yield f"data: {json.dumps(endThinking)}\n\n"
-                line = processLine(line, uuid, timeStamp)
+                line = parseLine(line, uuid, timeStamp, model)
                 yield f"data: {json.dumps(line)}\n\n"
                 contentCount = contentCount + 1
         else:
-            line = processLine(line, uuid, timeStamp)
+            line = parseLine(line, uuid, timeStamp, model)
             yield f"data: {json.dumps(line)}\n\n"   
 
 def adjustNonStreamContent(question: str, reasoning: bool):
@@ -126,31 +110,24 @@ def adjustNonStreamContent(question: str, reasoning: bool):
     for line in rawData:
         if line == "[DONE]":
             responseStats = json.loads(next(rawData))
-            chatContent = responseStats[4]['historyPreview'][-1]['value'].strip()
-            promptTokens = responseStats[4]['inputTokens']
-            completionTokens = responseStats[4]['outputTokens']
-            totalTokens = responseStats[4]['tokens']
-            streamingTime = responseStats[4]['runningTime']
-            chatCompletion = {
-                "id": uuid,
-                "object": "chat.completion",
-                "created": timeStamp,
-                "model": model,
-                "choices": [
-                    {
-                        "message": {
-                            "role": "assistant",
-                            "content": chatContent
-                        }
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": promptTokens,
-                    "completion_tokens": completionTokens,
-                    "total_tokens": totalTokens,
-                    "response_time": streamingTime
-                } 
-            }
+            chatCompletion = ChatCompletionChunk(
+                id = uuid,
+                created = timeStamp,
+                model = model,
+                choices = [Choices(
+                    message = ChatMessage(
+                        role = "assistant",
+                        content = responseStats[4]['historyPreview'][-1]['value'].strip()
+                    )
+                )],
+                usage=Usage(
+                    prompt_tokens=responseStats[4]['inputTokens'],
+                    completion_tokens=responseStats[4]['outputTokens'],
+                    total_tokens=responseStats[4]['tokens'],
+                    streaming_time=responseStats[4]['runningTime']
+                )
+            )
+
             return chatCompletion
 
 @app.post("/v1/chat/completions")
