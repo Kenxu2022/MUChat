@@ -53,8 +53,8 @@ def parseLine(line: dict, uuid: str, createTime: str, model: str, adjustReasonin
     return line
 
 def adjustContent(question: str, injectChatId: str, contextType: str, reasoning: bool):
-    reasoningCount = 0
-    contentCount = 0
+    reasoningStart = False
+    contentStart = False
     uuid = str(uuid4())
     timeStamp = int(time.time())
     model = "deepseek-r1-minda" if reasoning else "deepseek-v3-minda"
@@ -83,21 +83,21 @@ def adjustContent(question: str, injectChatId: str, contextType: str, reasoning:
             continue
         if reasoning:
             if line['choices'][0]['delta'].get("reasoning_content") is not None:
-                if reasoningCount == 0:
+                if not reasoningStart:
                     startThinking = parseLine(START_THINKING_STRING, uuid, timeStamp, model)
                     yield f"data: {json.dumps(startThinking)}\n\n" # need TWO newline characters
+                    reasoningStart = True
                 line = parseLine(line, uuid, timeStamp, model, True)
                 yield f"data: {json.dumps(line)}\n\n"
-                reasoningCount = reasoningCount + 1
             elif line['choices'][0]['delta'].get('content') == "":
                     continue
             else:
-                if contentCount == 0:
+                if not contentStart:
                     endThinking = parseLine(END_THINKING_STRING, uuid, timeStamp, model)
                     yield f"data: {json.dumps(endThinking)}\n\n"
+                    contentStart = True
                 line = parseLine(line, uuid, timeStamp, model)
                 yield f"data: {json.dumps(line)}\n\n"
-                contentCount = contentCount + 1
         else:
             line = parseLine(line, uuid, timeStamp, model)
             yield f"data: {json.dumps(line)}\n\n"   
