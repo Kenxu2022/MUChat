@@ -5,6 +5,7 @@ from configparser import ConfigParser
 from starlette.responses import StreamingResponse
 from fastapi import FastAPI
 import uvicorn
+from threading import Lock
 
 from utils.token import TokenManager
 from db import DatabaseManager
@@ -19,6 +20,7 @@ context = conf['API']['Context']
 tokenCount = int(conf['API']['TokenCount'])
 app = FastAPI(title="MUChat API")
 tokenManager = TokenManager(tokenCount)
+lock = Lock()
 previousContent = {}
 
 START_THINKING_STRING = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
@@ -26,19 +28,17 @@ END_THINKING_STRING = {"id": "", "object": "", "created": 0, "model": "", "choic
 
 def updateContext(id, response, contextType):
     if contextType == "internal":
-        previousContent[response] = id
+        with lock:
+            previousContent[response] = id
     elif contextType == "external":
         with DatabaseManager() as dbManager:
             dbManager.updateDbContext(id, response)
 
 def getChatId(content, contextType):
     if contextType == "internal":
-        if previousContent.get(content) is not None:
-            # remove previous chat content
-            id = previousContent.pop(content)
-            return id
-        else:
-            return None
+    # remove previous chat content
+        with lock:
+            return previousContent.pop(content, None)
     elif contextType == "external":
         with DatabaseManager() as dbManager:
             id = dbManager.getDbChatId(content)
@@ -132,7 +132,7 @@ def adjustNonStreamContent(question: str, reasoning: bool):
             return chatCompletion
 
 @app.post("/v1/chat/completions")
-async def chatCompletion(request: ChatCompletionRequest):
+def chatCompletion(request: ChatCompletionRequest):
     injectChatId = ""
     question = request.messages[-1].content
     reasoning = True if request.model == "deepseek-r1-minda" else False
