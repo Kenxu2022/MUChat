@@ -16,8 +16,9 @@ conf.read('config.ini')
 listenIP = conf['API']['ListenIP']
 listenPort = int(conf['API']['Port'])
 context = conf['API']['Context']
+tokenCount = int(conf['API']['TokenCount'])
 app = FastAPI(title="MUChat API")
-tokenManager = TokenManager()
+tokenManager = TokenManager(tokenCount)
 previousContent = {}
 
 START_THINKING_STRING = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
