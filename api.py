@@ -6,6 +6,7 @@ from starlette.responses import StreamingResponse
 from fastapi import FastAPI
 import uvicorn
 from threading import Lock
+from loguru import logger
 
 from utils.token import TokenManager
 from db import DatabaseManager
@@ -53,83 +54,97 @@ def parseLine(line: dict, uuid: str, createTime: str, model: str, adjustReasonin
         line['choices'][0]['delta']['content'] = line['choices'][0]['delta'].pop("reasoning_content")
     return line
 
-def adjustContent(question: str, injectChatId: str, contextType: str, reasoning: bool):
+def adjustContent(question: str, chatId: str, contextType: str, reasoning: bool):
     reasoningStart = False
     contentStart = False
     uuid = str(uuid4())
     timeStamp = int(time.time())
     model = "deepseek-r1-minda" if reasoning else "deepseek-v3-minda"
-    chatId, rawData = getAnswerData(tokenManager.getAccessToken(), question, reasoning, injectChatId)
-    for line in rawData:
-        if line == "[DONE]":
-            responseStats = json.loads(next(rawData))
-            if contextType in ("internal", "external"):
-                previousResponse = responseStats[4]['historyPreview'][-1]['value'].strip()
-                updateContext(chatId, previousResponse, contextType)
-            usageChunk = UsageChunk(
-                id = uuid,
-                created = timeStamp,
-                model = model,
-                usage = Usage(
-                    prompt_tokens = responseStats[4]['inputTokens'],
-                    completion_tokens = responseStats[4]['outputTokens'],
-                    total_tokens = responseStats[4]['tokens'],
-                    streaming_time = responseStats[4]['runningTime']
+    retryCount = 0
+    while True:
+        chatId, rawData = getAnswerData(tokenManager.getAccessToken(), question, reasoning, chatId)
+        for line in rawData:
+            if line == "Censored by upstream":
+                retryCount = retryCount + 1
+                logger.warning(f"Censorship detected, retrying: {retryCount}...")
+                question = "重新生成回复"
+                break
+            if line == "[DONE]":
+                responseStats = json.loads(next(rawData))
+                if contextType in ("internal", "external"):
+                    previousResponse = responseStats[4]['historyPreview'][-1]['value'].strip()
+                    updateContext(chatId, previousResponse, contextType)
+                usageChunk = UsageChunk(
+                    id = uuid,
+                    created = timeStamp,
+                    model = model,
+                    usage = Usage(
+                        prompt_tokens = responseStats[4]['inputTokens'],
+                        completion_tokens = responseStats[4]['outputTokens'],
+                        total_tokens = responseStats[4]['tokens'],
+                        streaming_time = responseStats[4]['runningTime']
+                    )
                 )
-            )
-            yield f"data: {usageChunk.model_dump_json()}\n\n"
-            break
-        line = json.loads(line)
-        if line.get("id") is None:
-            continue
-        if reasoning:
-            if line['choices'][0]['delta'].get("reasoning_content") is not None:
-                if not reasoningStart:
-                    startThinking = parseLine(START_THINKING_STRING, uuid, timeStamp, model)
-                    yield f"data: {json.dumps(startThinking)}\n\n" # need TWO newline characters
-                    reasoningStart = True
-                line = parseLine(line, uuid, timeStamp, model, True)
-                yield f"data: {json.dumps(line)}\n\n"
-            elif line['choices'][0]['delta'].get('content') == "":
-                    continue
+                yield f"data: {usageChunk.model_dump_json()}\n\n"
+                return
+            line = json.loads(line)
+            if line.get("id") is None:
+                continue
+            if reasoning:
+                if line['choices'][0]['delta'].get("reasoning_content") is not None:
+                    if not reasoningStart:
+                        startThinking = parseLine(START_THINKING_STRING, uuid, timeStamp, model)
+                        yield f"data: {json.dumps(startThinking)}\n\n" # need TWO newline characters
+                        reasoningStart = True
+                    line = parseLine(line, uuid, timeStamp, model, True)
+                    yield f"data: {json.dumps(line)}\n\n"
+                elif line['choices'][0]['delta'].get('content') == "":
+                        continue
+                else:
+                    if not contentStart:
+                        endThinking = parseLine(END_THINKING_STRING, uuid, timeStamp, model)
+                        yield f"data: {json.dumps(endThinking)}\n\n"
+                        contentStart = True
+                    line = parseLine(line, uuid, timeStamp, model)
+                    yield f"data: {json.dumps(line)}\n\n"
             else:
-                if not contentStart:
-                    endThinking = parseLine(END_THINKING_STRING, uuid, timeStamp, model)
-                    yield f"data: {json.dumps(endThinking)}\n\n"
-                    contentStart = True
                 line = parseLine(line, uuid, timeStamp, model)
-                yield f"data: {json.dumps(line)}\n\n"
-        else:
-            line = parseLine(line, uuid, timeStamp, model)
-            yield f"data: {json.dumps(line)}\n\n"   
+                yield f"data: {json.dumps(line)}\n\n"   
 
-def adjustNonStreamContent(question: str, reasoning: bool):
+def adjustNonStreamContent(question: str, reasoning: bool, chatId: str = ""):
     uuid = str(uuid4())
     timeStamp = int(time.time())
     model = "deepseek-r1-minda" if reasoning else "deepseek-v3-minda"
-    _, rawData = getAnswerData(tokenManager.getAccessToken(), question, reasoning)
-    for line in rawData:
-        if line == "[DONE]":
-            responseStats = json.loads(next(rawData))
-            chatCompletion = ChatCompletionChunk(
-                id = uuid,
-                created = timeStamp,
-                model = model,
-                choices = [Choices(
-                    message = ChatMessage(
-                        role = "assistant",
-                        content = responseStats[4]['historyPreview'][-1]['value'].strip()
+    retryCount = 0
+    while True:
+        chatId, rawData = getAnswerData(tokenManager.getAccessToken(), question, reasoning, chatId)
+        for line in rawData:
+            if line == "Censored by upstream":
+                retryCount = retryCount + 1
+                logger.warning(f"Censorship detected, retrying: {retryCount}...")
+                question = "重新生成回复"
+                break
+            if line == "[DONE]":
+                responseStats = json.loads(next(rawData))
+                chatCompletion = ChatCompletionChunk(
+                    id = uuid,
+                    created = timeStamp,
+                    model = model,
+                    choices = [Choices(
+                        message = ChatMessage(
+                            role = "assistant",
+                            content = responseStats[4]['historyPreview'][-1]['value'].strip()
+                        )
+                    )],
+                    usage=Usage(
+                        prompt_tokens=responseStats[4]['inputTokens'],
+                        completion_tokens=responseStats[4]['outputTokens'],
+                        total_tokens=responseStats[4]['tokens'],
+                        streaming_time=responseStats[4]['runningTime']
                     )
-                )],
-                usage=Usage(
-                    prompt_tokens=responseStats[4]['inputTokens'],
-                    completion_tokens=responseStats[4]['outputTokens'],
-                    total_tokens=responseStats[4]['tokens'],
-                    streaming_time=responseStats[4]['runningTime']
                 )
-            )
 
-            return chatCompletion
+                return chatCompletion
 
 @app.post("/v1/chat/completions")
 def chatCompletion(request: ChatCompletionRequest):
