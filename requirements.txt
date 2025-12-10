@@ -3,3 +3,4 @@ beautifulsoup4
 fastapi
 uvicorn[standard]
 loguru
+gmssl # for sm2 encryption

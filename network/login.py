@@ -1,53 +1,93 @@
 import requests
 from bs4 import BeautifulSoup
 import json
+from gmssl import sm2
+import base64
+from configparser import ConfigParser
+from urllib.parse import urlparse, parse_qs
 
 HEADER = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'accept-encoding': 'gzip, deflate, br, zstd',
+    'Accept-Encoding': 'gzip, deflate, br, zstd',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-    'sec-ch-ua': '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
 }
 
-def getCookie(username: str, password: str):
-    url = "https://ca.muc.edu.cn/zfca/login?service=https://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin"
-    def getExecution():
-        pageResponse = requests.get(url)
-        soup = BeautifulSoup(pageResponse.text, 'html.parser')
-        inputTag = soup.find('input', {'name': 'execution'})
-        executionValue = inputTag.get('value')
-        return executionValue
+conf = ConfigParser()
+conf.read("config.ini")
+USERNAME = conf['Login']['Username']
+PASSWORD = conf['Login']['Password']
 
-    cookie = {
-        '_7da9a': 'http://10.0.1.13:8080'
-    }
+def getTicket():
+    '''
+    return location URL and TGT (Ticket Granting Ticket)
+    '''
+    url = "https://ca.muc.edu.cn/zfca/login?service=https://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin?clientid=aipc_100050;MUCShow;ZXlKMWNtd2lPaUpvZEhSd2N6b3ZMM052TG0xMVl5NWxaSFV1WTI0dllXbHhZUzhqTDJ4dloybHVJbjA9"
+
+    def getMiscInfo() -> list[str, str, str]: # get flowId and sm2 public key
+        response = requests.get(url = url, headers = HEADER)
+        cookie = response.cookies.get_dict()
+        content = response.text
+        # get sessionID
+        sessionID = cookie.get('JSESSIONID')
+        # get flowID
+        soup = BeautifulSoup(content, 'html.parser')
+        flowId = soup.find("input", attrs={"name": "flowId"}).get('value')
+        # get sm2 public key
+        scripts = soup.find_all('script')
+        for script in scripts:
+            if script.string:
+                for line in script.string.splitlines():
+                    if line.strip().startswith("var ssoConfig ="):
+                        ssoConfig = json.loads(line.strip().split("var ssoConfig =")[1].strip()[:-1])
+                        sm2PublicKey = ssoConfig['sm2']['publicKey']
+        return sessionID, flowId, sm2PublicKey
+
+    def getEncryptedPassword(password: str, publicKey: str) -> str: # encrypt password using sm2
+        bytePublicKey = base64.b64decode(publicKey)
+        hexPublicKey = bytePublicKey[1:].hex() # remove leading 0x04, then convert to hex
+        sm2Crypt = sm2.CryptSM2(public_key = hexPublicKey, private_key = None, mode = 1)
+        byteEncryptedPassword = sm2Crypt.encrypt(password.encode())
+        encryptedPassword = base64.b64encode(byteEncryptedPassword).decode()
+        return encryptedPassword
+
+    sessionID, flowId, sm2PublicKey = getMiscInfo()
+    encryptedPassword = getEncryptedPassword(PASSWORD, sm2PublicKey)
+
     payload = {
-        'username': username,
-        'password': password,
+        'username': USERNAME,
+        'password': encryptedPassword,
         'submit': '登录',
-        'type': 'username_password',
-        'execution': getExecution(),
-        '_eventId': 'submit'
+        'loginType': 'username_password',
+        'flowId': flowId
     }
-    loginResponse = requests.post(url, headers=HEADER, cookies=cookie, data=payload, allow_redirects=False)
-    return loginResponse.headers
+    response = requests.post(url, headers = HEADER, data = payload, allow_redirects = False)
+    location = response.headers.get('Location')
+    tgt = response.cookies.get('SSO_TGC')
+    return location, tgt
 
-def getAuthorization(ticketLocation: str):
-    url = "https://so.muc.edu.cn/ai_service/auth-center/account/mucCasLogin?clientid=aih5_100040;MUCShow;state;"
-    def getSession(ticketLocation):
-        response = requests.get(ticketLocation, headers=HEADER, allow_redirects=False)
-        return response.headers
-    
-    getSessionString = getSession(ticketLocation)
-    setCookieString = getSessionString.get('Set-Cookie')
-    sessionCookie = setCookieString.split(';')[0]
+def getSession():
+    location, tgt = getTicket()
     cookie = {
-        sessionCookie.split('=')[0]: sessionCookie.split("=")[1]
+        'SSO_TGC': tgt
     }
-    response = requests.get(url, headers=HEADER, cookies=cookie, allow_redirects=False)
-    return response.headers
+    response = requests.get(url = location, headers = HEADER, cookies = cookie, allow_redirects = False)
+    location = response.headers.get('Location')
+    session = response.cookies.get('SESSION')
+    return location, session, tgt
+
+def getToken():
+    location, session, tgt = getSession()
+    cookie = {
+        'SSO_TGC': tgt,
+        'SESSION': session
+    }
+    response = requests.get(url = location, headers = HEADER, cookies = cookie, allow_redirects = False)
+    location = response.headers.get('Location')
+    urlParams = parse_qs(urlparse(location).fragment)
+    accessToken = urlParams.get('/accessLogin?access_token')[0]
+    return accessToken
 
 def checkToken(token: str):
     header = {

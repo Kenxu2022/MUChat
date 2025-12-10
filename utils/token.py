@@ -1,15 +1,8 @@
-from configparser import ConfigParser
-from urllib.parse import urlparse, parse_qs
 from loguru import logger
 from time import time
 from threading import Thread, Lock
 
-from network.login import getCookie, getAuthorization, checkToken
-
-conf = ConfigParser()
-conf.read("config.ini")
-username = conf['Login']['Username']
-password = conf['Login']['Password']
+from network.login import getToken, checkToken
 
 class TokenManager:
     def __init__(self, tokenCount = 1):
@@ -21,20 +14,7 @@ class TokenManager:
         self._startMultiThread()
 
     def _acquireAccessToken(self):
-        while True:
-            loginHeader = getCookie(username, password)
-            ticketLocation = loginHeader.get('Location')
-            setCookie = loginHeader.get('Set-Cookie')
-            if setCookie is not None and "CASTGC" in setCookie:
-                break
-            else:
-                logger.warning("Get cookie failed, retrying...")
-        logger.info("Get cookie success")
-
-        authorizationString = getAuthorization(ticketLocation)
-        locationString = authorizationString.get('Location')
-        accessToken = parse_qs(urlparse(locationString).fragment).get('/accessLogin?access_token')[0]
-        logger.info("Token generated")
+        accessToken = getToken()
         return {
                 "token": accessToken,
                 "createTime": int(time())
