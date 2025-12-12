@@ -1,14 +1,18 @@
 from loguru import logger
 from time import time
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
+import jwt
 
-from network.login import getToken, checkToken
+from network.login import getToken
 
 class TokenManager:
     def __init__(self, tokenCount = 1):
         self._lock = Lock()
         self.tokenCount = tokenCount
         self._refreshing = [False] * tokenCount
+        self._refreshed_evt = [Event() for _ in range(tokenCount)]
+        for e in self._refreshed_evt:
+            e.set()
         self.tokenList = []
         self._rr_index = 0
         self._startMultiThread()
@@ -25,7 +29,6 @@ class TokenManager:
         with self._lock:
             self.tokenList.append(token)
 
-
     def _startMultiThread(self):
         threads = []
         for _ in range(self.tokenCount):
@@ -36,51 +39,56 @@ class TokenManager:
         for t in threads:
             t.join()
 
-
-    def _refreshToken(self, position):
-        """Refresh token synchronously and update state under lock."""
-        try:
-            with self._lock:
-                self.tokenList[position] = self._acquireAccessToken()
-
-            logger.info("Token refreshed in background")
-        except Exception as e:
-            logger.exception("Background token refresh failed: {}", e)
-
-    def _refreshTokenAsync(self, currentIndex):
-        """Start a daemon thread to refresh token if not already refreshing."""
-        with self._lock:
-            if self._refreshing[currentIndex]:
-                return
-            self._refreshing[currentIndex] = True
-
-        def _runner(currentIndex):
+    def _refreshToken(self, currentIndex: int, sync: bool):
+        def do_refresh():
             try:
-                self._refreshToken(currentIndex)
+                new_data = self._acquireAccessToken()
+                with self._lock:
+                    self.tokenList[currentIndex] = new_data
             finally:
                 with self._lock:
                     self._refreshing[currentIndex] = False
+                    self._refreshed_evt[currentIndex].set()
 
-        Thread(target=_runner, args = (currentIndex,), daemon=True).start()
+        with self._lock:
+            if not self._refreshing[currentIndex]:
+                self._refreshing[currentIndex] = True
+                self._refreshed_evt[currentIndex].clear()
+                leader = True
+            else:
+                leader = False
+                evt = self._refreshed_evt[currentIndex]
+
+        if not leader:
+            # wait until finished under sync mode, otherwise just return
+            if sync:
+                evt.wait()
+            return
+        else: # only let leading request actually do refresh procedure
+            if sync:
+                do_refresh()
+            else:
+                Thread(target=do_refresh, daemon=True).start()
 
     def getAccessToken(self):
         # round-robin
         with self._lock:
-            token = self.tokenList[self._rr_index]["token"]
-            createTime = self.tokenList[self._rr_index]["createTime"]
             currentIndex = self._rr_index
+            token = self.tokenList[currentIndex]['token']
+            # createTime = self.tokenList[currentIndex]['createTime']
             self._rr_index = (self._rr_index + 1) % len(self.tokenList)
-        # check token status every 6 hour
-        if int(time()) - createTime <= 21600:
-            logger.info(f"Token {currentIndex} valid")
+        # verify exp in jwt token 
+        tokenStatus = jwt.decode(token, options = {"verify_signature": False, "verify_exp": False})
+        expireTime = tokenStatus['exp'] - int(time())
+        if expireTime >= 3600:
+            logger.info(f"Token {currentIndex} valid, {expireTime}s from expiring.")
             return token
-        # first check if token is valid after 6 hour
-        elif checkToken(token):
-            logger.info(f"Refreshing token {currentIndex} in background...")
-            self._refreshTokenAsync(currentIndex)
+        elif expireTime > 0:
+            logger.info(f"Token {currentIndex} will expire in 1 hour, refreshing in background...")
+            self._refreshToken(currentIndex, False)
             return token
         else:
             logger.info(f"Token {currentIndex} expired, refreshing...")
-            data = self._acquireAccessToken()
-            self.tokenList[currentIndex] = data
-            return data["token"]
+            self._refreshToken(currentIndex, True)
+            with self._lock:
+                return self.tokenList[currentIndex]["token"]

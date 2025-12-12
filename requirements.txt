@@ -4,3 +4,4 @@ fastapi
 uvicorn[standard]
 loguru
 gmssl # for sm2 encryption
+pyjwt # check token validity

@@ -89,24 +89,24 @@ def getToken():
     accessToken = urlParams.get('/accessLogin?access_token')[0]
     return accessToken
 
-def checkToken(token: str):
-    header = {
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Authorization': f'Bearer {token}',
-        'Cache-Control': 'no-cache',
-        'Content-Type': 'application/json',
-        'Pragma': 'no-cache',
-        'Proxy-Connection': 'keep-alive',
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
-    }
-    cookie = {
-        'Authorization': f'Bearer {token}'
-    }
-    url = "https://so.muc.edu.cn/ai_service/search-server//agent-reminder-record/query-unread-count"
-    response = requests.get(url, headers=header, cookies=cookie)
-    data = json.loads(response.text)
-    loginStatus = data.get('code')
-    if loginStatus == "0000":
-        return True
-    else:
-        return False
+# def checkToken(token: str):
+#     header = {
+#         'Accept-Language': 'zh-CN,zh;q=0.9',
+#         'Authorization': f'Bearer {token}',
+#         'Cache-Control': 'no-cache',
+#         'Content-Type': 'application/json',
+#         'Pragma': 'no-cache',
+#         'Proxy-Connection': 'keep-alive',
+#         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+#     }
+#     cookie = {
+#         'Authorization': f'Bearer {token}'
+#     }
+#     url = "https://so.muc.edu.cn/ai_service/search-server//agent-reminder-record/query-unread-count"
+#     response = requests.get(url, headers=header, cookies=cookie)
+#     data = json.loads(response.text)
+#     loginStatus = data.get('code')
+#     if loginStatus == "0000":
+#         return True
+#     else:
+#         return False
