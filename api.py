@@ -20,6 +20,7 @@ listenPort = int(conf['API']['Port'])
 context = conf['API']['Context']
 tokenCount = int(conf['API']['TokenCount'])
 maxRetryCount = int(conf['API']['MaxRetryCount'])
+injectSystemPrompt = conf['API'].getboolean('InjectSystemPrompt')
 app = FastAPI(title="MUChat API")
 tokenManager = TokenManager(tokenCount)
 lock = Lock()
@@ -173,7 +174,10 @@ def adjustNonStreamContent(question: str, reasoning: bool, chatId: str = ""):
 @app.post("/v1/chat/completions")
 def chatCompletion(request: ChatCompletionRequest):
     injectChatId = ""
-    question = request.messages[-1].content
+    if request.messages[0].role == "system" and injectSystemPrompt:
+        question = f'System Prompt: {str(request.messages[0].content)}\n\nUser Prompt: {str(request.messages[-1].content)}'
+    else:
+        question = str(request.messages[-1].content)
     reasoning = True if request.model == "deepseek-r1-minda" else False
     if request.stream:
         if len(request.messages) > 1 and context in ("internal", "external"):
