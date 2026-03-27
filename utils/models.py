@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Union
 
 class Usage(BaseModel):
     prompt_tokens: int
@@ -24,7 +24,7 @@ class UsageChunk(BaseModel):
 class ChatCompletionChunk(UsageChunk):
     object: str = "chat.completion"
     choices: List[Choices]
-    usage: Usage
+    usage: Union[Usage, None] = None
 
 class ChatCompletionRequest(BaseModel):
     model: str

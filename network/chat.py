@@ -38,7 +38,7 @@ def getAnswerData(accessToken: str, question: str, reasoning: bool, newChatId: s
             elif line.startswith('event:'):
                 eventType = line.split(":", 1)[1].strip()
                 if eventType == "fastAnswer":
-                    yield "Censored by upstream"
+                    yield '{"status":"censored"}'
                     break
             elif line == "":
                 yield dataLine
