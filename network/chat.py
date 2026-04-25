@@ -8,8 +8,7 @@ def getAnswerData(accessToken: str, question: str, reasoning: bool, newChatId: s
         'Authorization': f'Bearer {accessToken}',
         'Cache-Control': 'no-cache',
         'Content-Type': 'application/json',
-        'Pragma': 'no-cache',
-        'Proxy-Connection': 'keep-alive',
+        'Clientid': 'aipc_100050',
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
     }
     cookie = {
