@@ -60,6 +60,7 @@ def parseLine(line: dict, uuid: str, createTime: str, model: str, adjustReasonin
 def adjustContent(question: str, chatId: str, contextType: str, reasoning: bool):
     reasoningStart = False
     contentStart = False
+    previousContentChunk = ""
     uuid = str(uuid4())
     timeStamp = int(time.time())
     model = "deepseek-r1-minda" if reasoning else "deepseek-v3-minda"
@@ -68,22 +69,22 @@ def adjustContent(question: str, chatId: str, contextType: str, reasoning: bool)
         chatId, rawData = getAnswerData(tokenManager.getAccessToken(), question, reasoning, chatId)
         for line in rawData:
             if line == "[DONE]":
-                responseStats = json.loads(next(rawData))
+                # responseStats = json.loads(next(rawData))
                 if contextType in ("internal", "external"):
-                    previousResponse = responseStats[4]['historyPreview'][-1]['value'].strip()
+                    previousResponse = previousContentChunk
                     updateContext(chatId, previousResponse, contextType)
-                usageChunk = UsageChunk(
-                    id = uuid,
-                    created = timeStamp,
-                    model = model,
-                    usage = Usage(
-                        prompt_tokens = responseStats[4]['inputTokens'],
-                        completion_tokens = responseStats[4]['outputTokens'],
-                        total_tokens = responseStats[4]['tokens'],
-                        streaming_time = responseStats[4]['runningTime']
-                    )
-                )
-                yield f"data: {usageChunk.model_dump_json()}\n\n"
+                # usageChunk = UsageChunk(
+                #     id = uuid,
+                #     created = timeStamp,
+                #     model = model,
+                #     usage = Usage(
+                #         prompt_tokens = responseStats[4]['inputTokens'],
+                #         completion_tokens = responseStats[4]['outputTokens'],
+                #         total_tokens = responseStats[4]['tokens'],
+                #         streaming_time = responseStats[4]['runningTime']
+                #     )
+                # )
+                # yield f"data: {usageChunk.model_dump_json()}\n\n"
                 return
             line = json.loads(line)
             # censorship detection
@@ -115,9 +116,13 @@ def adjustContent(question: str, chatId: str, contextType: str, reasoning: bool)
                         yield f"data: {json.dumps(endThinking)}\n\n"
                         contentStart = True
                     line = parseLine(line, uuid, timeStamp, model)
+                    if line['choices'][0]['delta'].get('content') is not None:
+                        previousContentChunk = previousContentChunk + line['choices'][0]['delta']['content']
                     yield f"data: {json.dumps(line)}\n\n"
             else:
                 line = parseLine(line, uuid, timeStamp, model)
+                if line['choices'][0]['delta'].get('content') is not None:
+                    previousContentChunk = previousContentChunk + line['choices'][0]['delta']['content']
                 yield f"data: {json.dumps(line)}\n\n"   
 
 def adjustNonStreamContent(question: str, reasoning: bool, chatId: str = ""):
@@ -125,11 +130,12 @@ def adjustNonStreamContent(question: str, reasoning: bool, chatId: str = ""):
     timeStamp = int(time.time())
     model = "deepseek-r1-minda" if reasoning else "deepseek-v3-minda"
     retryCount = 0
+    previousContentChunk = ""
     while True:
         chatId, rawData = getAnswerData(tokenManager.getAccessToken(), question, reasoning, chatId)
         for line in rawData:
             if line == "[DONE]":
-                responseStats = json.loads(next(rawData))
+                # responseStats = json.loads(next(rawData))
                 chatCompletion = ChatCompletionChunk(
                     id = uuid,
                     created = timeStamp,
@@ -137,15 +143,15 @@ def adjustNonStreamContent(question: str, reasoning: bool, chatId: str = ""):
                     choices = [Choices(
                         message = ChatMessage(
                             role = "assistant",
-                            content = responseStats[4]['historyPreview'][-1]['value'].strip()
+                            content = previousContentChunk
                         )
-                    )],
-                    usage=Usage(
-                        prompt_tokens=responseStats[4]['inputTokens'],
-                        completion_tokens=responseStats[4]['outputTokens'],
-                        total_tokens=responseStats[4]['tokens'],
-                        streaming_time=responseStats[4]['runningTime']
-                    )
+                    )]
+                    # usage=Usage(
+                    #     prompt_tokens=responseStats[4]['inputTokens'],
+                    #     completion_tokens=responseStats[4]['outputTokens'],
+                    #     total_tokens=responseStats[4]['tokens'],
+                    #     streaming_time=responseStats[4]['runningTime']
+                    # )
                 )
                 return chatCompletion
             # censorship detection
@@ -170,6 +176,10 @@ def adjustNonStreamContent(question: str, reasoning: bool, chatId: str = ""):
                         )]
                     )
                     return chatCompletion
+            if line.get("id") is None:
+                continue
+            if line['choices'][0]['delta'].get('content') is not None:
+                previousContentChunk = previousContentChunk + line['choices'][0]['delta']['content']
 
 @app.post("/v1/chat/completions")
 def chatCompletion(request: ChatCompletionRequest):
