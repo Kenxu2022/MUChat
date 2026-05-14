@@ -7,6 +7,7 @@ from fastapi import FastAPI
 import uvicorn
 from threading import Lock
 from loguru import logger
+import re
 
 from utils.token import TokenManager
 from db import DatabaseManager
@@ -171,6 +172,8 @@ def chatCompletion(request: ChatCompletionRequest):
                 previousChatContent = allContent[0].get("text") if isinstance(allContent[0], dict) else str(allContent)
             else:
                 previousChatContent = str(allContent)
+            # remove reasoning content if exists
+            previousChatContent = re.sub(r"<think>.*?</think>", "", previousChatContent, flags=re.DOTALL).strip() # remove all content between <think> and </think>
             injectChatId = getChatId(previousChatContent, context)
         return StreamingResponse(adjustContent(question, injectChatId, context, reasoning), media_type="application/x-ndjson")
     else:
