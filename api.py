@@ -165,7 +165,12 @@ def chatCompletion(request: ChatCompletionRequest):
     reasoning = True if request.model == "deepseek-r1-minda" else False
     if request.stream:
         if len(request.messages) > 1 and context in ("internal", "external"):
-            previousChatContent = request.messages[-2].content.strip()
+            # OpenClaw compatibility
+            allContent = request.messages[-2].content
+            if isinstance(allContent, list) and allContent:
+                previousChatContent = allContent[0].get("text") if isinstance(allContent[0], dict) else str(allContent)
+            else:
+                previousChatContent = str(allContent)
             injectChatId = getChatId(previousChatContent, context)
         return StreamingResponse(adjustContent(question, injectChatId, context, reasoning), media_type="application/x-ndjson")
     else:
