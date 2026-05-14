@@ -26,8 +26,6 @@ tokenManager = TokenManager(tokenCount)
 lock = Lock()
 previousContent = {}
 
-START_THINKING_STRING = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "<think>\n"}, "index": 0, "finish_reason": None}]}
-END_THINKING_STRING = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "\n</think>\n"}, "index": 0, "finish_reason": None}]}
 CENSORED_STRING = {"id": "", "object": "", "created": 0, "model": "", "choices": [{"delta": {"role": "assistant", "content": "提示词因包含敏感词被上游拦截"}, "index": 0, "finish_reason": None}]}
 
 def updateContext(id, response, contextType):
@@ -53,13 +51,9 @@ def parseLine(line: dict, uuid: str, createTime: str, model: str, adjustReasonin
     line['object'] = "chat.completion.chunk"
     line['created'] = createTime
     line['model'] = model
-    if adjustReasoningContent:
-        line['choices'][0]['delta']['content'] = line['choices'][0]['delta'].pop("reasoning_content")
     return line
 
 def adjustContent(question: str, chatId: str, contextType: str, reasoning: bool):
-    reasoningStart = False
-    contentStart = False
     previousContentChunk = ""
     uuid = str(uuid4())
     timeStamp = int(time.time())
@@ -100,30 +94,10 @@ def adjustContent(question: str, chatId: str, contextType: str, reasoning: bool)
                     return
             if line.get("id") is None:
                 continue
-            if reasoning:
-                if line['choices'][0]['delta'].get("reasoning_content") is not None:
-                    if not reasoningStart:
-                        startThinking = parseLine(START_THINKING_STRING, uuid, timeStamp, model)
-                        yield f"data: {json.dumps(startThinking)}\n\n" # need TWO newline characters
-                        reasoningStart = True
-                    line = parseLine(line, uuid, timeStamp, model, True)
-                    yield f"data: {json.dumps(line)}\n\n"
-                elif line['choices'][0]['delta'].get('content') == "":
-                        continue
-                else:
-                    if not contentStart:
-                        endThinking = parseLine(END_THINKING_STRING, uuid, timeStamp, model)
-                        yield f"data: {json.dumps(endThinking)}\n\n"
-                        contentStart = True
-                    line = parseLine(line, uuid, timeStamp, model)
-                    if line['choices'][0]['delta'].get('content') is not None:
-                        previousContentChunk = previousContentChunk + line['choices'][0]['delta']['content']
-                    yield f"data: {json.dumps(line)}\n\n"
-            else:
-                line = parseLine(line, uuid, timeStamp, model)
-                if line['choices'][0]['delta'].get('content') is not None:
-                    previousContentChunk = previousContentChunk + line['choices'][0]['delta']['content']
-                yield f"data: {json.dumps(line)}\n\n"   
+            line = parseLine(line, uuid, timeStamp, model)
+            if line['choices'][0]['delta'].get('content') is not None:
+                previousContentChunk = previousContentChunk + line['choices'][0]['delta']['content']
+            yield f"data: {json.dumps(line)}\n\n"   
 
 def adjustNonStreamContent(question: str, reasoning: bool, chatId: str = ""):
     uuid = str(uuid4())
